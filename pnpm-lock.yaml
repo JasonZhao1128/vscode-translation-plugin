@@ -17,7 +17,7 @@ devDependencies:
     specifier: 20.x
     version: 20.14.15
   '@types/vscode':
-    specifier: ^1.92.0
+    specifier: ^1.71.0
     version: 1.92.0
   '@typescript-eslint/eslint-plugin':
     specifier: ^7.14.1
