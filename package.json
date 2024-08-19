@@ -1,0 +1,95 @@
+{
+    "name": "tFuntionTranslation",
+    "displayName": "multilingual-assistance",
+    "description": "翻译i18n文本辅助",
+    "version": "0.0.1",
+    "publisher": "jasonzhao1128",
+    "repository":"https://github.com/JasonZhao1128/vscode-translation-plugin.git",
+    "engines": {
+      "vscode": "^1.92.0"
+    },
+    "categories": [
+      "Other"
+    ],
+    "activationEvents": [
+      "onLanguage:javascript",
+      "onLanguage:typescript",
+      "onLanguage:javascriptreact",
+      "onLanguage:typescriptreact",
+      "onLanguage:vue"
+    ],
+    "main": "./dist/extension.js",
+    "contributes": {
+      "commands": [
+        {
+          "command": "比如：t('title')=>t('title'标题)",
+          "title": "t()辅助翻译"
+        }
+      ],
+      "configuration": {
+        "properties": {
+          "translationFilesPath": {
+            "type": "string",
+            "default": "locales/*.json",
+            "description": "The path pattern for translation files"
+          }
+        }
+      },
+      "languages": [
+        {
+          "id": "javascript",
+          "extensions": [".js"],
+          "aliases": ["JavaScript", "js"]
+        },
+        {
+          "id": "typescript",
+          "extensions": [".ts"],
+          "aliases": ["TypeScript", "ts"]
+        },
+        {
+          "id": "javascriptreact",
+          "extensions": [".jsx"],
+          "aliases": ["JavaScript React", "jsx"]
+        },
+        {
+          "id": "typescriptreact",
+          "extensions": [".tsx"],
+          "aliases": ["TypeScript React", "tsx"]
+        },
+        {
+          "id": "vue",
+          "extensions": [".vue"],
+          "aliases": ["Vue"]
+        }
+      ]
+    },
+    "scripts": {
+      "vscode:prepublish": "pnpm run package",
+      "compile": "webpack",
+      "watch": "webpack --watch",
+      "package": "webpack --mode production --devtool hidden-source-map",
+      "compile-tests": "tsc -p . --outDir out",
+      "watch-tests": "tsc -p . -w --outDir out",
+      "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
+      "lint": "eslint src --ext ts",
+      "test": "vscode-test"
+    },
+    "devDependencies": {
+      "@types/mocha": "^10.0.7",
+      "@types/node": "20.x",
+      "@types/vscode": "^1.92.0",
+      "@typescript-eslint/eslint-plugin": "^7.14.1",
+      "@typescript-eslint/parser": "^7.11.0",
+      "@vscode/test-cli": "^0.0.9",
+      "@vscode/test-electron": "^2.4.0",
+      "eslint": "^8.57.0",
+      "ts-loader": "^9.5.1",
+      "typescript": "^5.4.5",
+      "webpack": "^5.92.1",
+      "webpack-cli": "^5.1.4"
+    },
+    "dependencies": {
+      "fs": "0.0.1-security"
+    }
+  }
+  

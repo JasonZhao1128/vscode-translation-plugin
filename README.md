@@ -20,3 +20,8 @@ A VS Code extension for translating i18n text.
 
 - Set the path to your translation files in the VS Code settings:
   "translationFilesPath": "locales/*.json"
+
+## Build
+```
+vsce package --no-dependencies
+```
