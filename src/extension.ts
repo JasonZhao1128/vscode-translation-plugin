@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as vm from 'vm';
-import { URL, pathToFileURL } from 'url';
+import * as ts from 'typescript'; // TypeScript support
 
 let translations: any = {};
 let decorationType: vscode.TextEditorDecorationType | undefined;
 
 async function loadTranslations() {
     const config = vscode.workspace.getConfiguration();
-    const translationFilesPath = config.get<string>('translationFilesPath', 'locales/*.{json,js}');
+    const translationFilesPath = config.get<string>('translationFilesPath', 'locales/**/*.{json,js,ts}');
 
     translations = {};
     const files = await vscode.workspace.findFiles(translationFilesPath);
@@ -20,29 +20,34 @@ async function loadTranslations() {
             const data = await vscode.workspace.fs.readFile(file);
             const json = JSON.parse(data.toString());
             translations = { ...translations, ...json };
-        } else if (fileExtension === '.js') {
+        } else if (fileExtension === '.js' || fileExtension === '.ts') {
             const fileContent = await vscode.workspace.fs.readFile(file);
             const scriptContent = fileContent.toString();
+
+            // If TypeScript, compile it first
+            let compiledContent = scriptContent;
+            if (fileExtension === '.ts') {
+                compiledContent = compileTypeScript(scriptContent, file.fsPath);
+            }
+
             const sandbox = { module: { exports: {} }, exports: {}, require, console };
             vm.createContext(sandbox);
 
-            if (isESModule(scriptContent)) {
-                // 如果是 ES Modules，使用动态 import
+            if (isESModule(compiledContent)) {
                 try {
-                    // 手动处理 export 语法
-                    const scriptWithExportHandling = handleESModuleExports(scriptContent);
+                    const scriptWithExportHandling = handleESModuleExports(compiledContent);
                     const script = new vm.Script(scriptWithExportHandling);
                     script.runInContext(sandbox);
                     const moduleExports = sandbox.module.exports;
-                    translations = { ...translations, ...moduleExports };
+                    const exports = sandbox.exports;
+                    translations = { ...translations, ...moduleExports,...exports };
                     console.log('Loaded ES Module:', moduleExports);
                 } catch (error) {
                     console.error(`Failed to load ES Module from file ${file.fsPath}:`, error);
                 }
             } else {
-                // 如果是 CommonJS，使用 vm.Script
                 try {
-                    const script = new vm.Script(scriptContent);
+                    const script = new vm.Script(compiledContent);
                     script.runInContext(sandbox);
 
                     const moduleExports = sandbox.module.exports;
@@ -63,11 +68,21 @@ function isESModule(scriptContent: string): boolean {
     const hasImport = /\bimport\b/.test(scriptContent);
     return hasExport || hasImport;
 }
-// 处理 ES Module 的导出，将 `export` 语句替换为 `exports` 赋值
+
 function handleESModuleExports(scriptContent: string): string {
     return scriptContent.replace(/export\s+default\s+/g, 'module.exports = ')
                         .replace(/export\s+const\s+(\w+)\s*=\s*/g, 'exports.$1 = ');
 }
+
+// TypeScript compiler
+function compileTypeScript(source: string, fileName: string): string {
+    const result = ts.transpileModule(source, {
+        compilerOptions: { module: ts.ModuleKind.CommonJS },
+        fileName,
+    });
+    return result.outputText;
+}
+
 function getNestedTranslation(keyPath: string, obj: any): string | undefined {
     return keyPath.split('.').reduce((acc, key) => acc && acc[key], obj);
 }
@@ -92,10 +107,10 @@ function applyDecorations() {
 
     while ((match = regex.exec(text)) !== null) {
         const key = match[1];
-        const translation = getNestedTranslation(key, translations); // 获取嵌套翻译文本
+        const translation = getNestedTranslation(key, translations); 
         if (translation) {
-            const startPos = editor.document.positionAt(match.index + 2); // t( 之后的位置
-            const endPos = editor.document.positionAt(match.index + match[0].length - 1); // " 之前的位置
+            const startPos = editor.document.positionAt(match.index + 2);
+            const endPos = editor.document.positionAt(match.index + match[0].length - 1);
             const range = new vscode.Range(startPos, endPos);
 
             const decoration: vscode.DecorationOptions = {
@@ -105,8 +120,8 @@ function applyDecorations() {
                     after: { 
                         contentText: translation, 
                         textDecoration: 'none',
-                        color: '#9f9fa3', // 设置字体颜色
-                        fontStyle: 'italic' // 设置斜体
+                        color: '#9f9fa3', 
+                        fontStyle: 'italic'
                     }
                 },
                 hoverMessage: `Original text: t("${key}")`
@@ -128,9 +143,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
     vscode.workspace.onDidSaveTextDocument(async (document) => {
         const config = vscode.workspace.getConfiguration();
-        const translationFilesPath = config.get<string>('translationFilesPath', 'locales/*.{json,js}');
+        const translationFilesPath = config.get<string>('translationFilesPath', 'locales/**/*.{json,js,ts}');
         
-        // 仅当保存的文件是翻译文件时重新加载翻译
         const files = await vscode.workspace.findFiles(translationFilesPath);
         if (files.some(file => file.fsPath === document.fileName)) {
             await loadTranslations();
