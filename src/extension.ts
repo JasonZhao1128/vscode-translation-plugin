@@ -8,12 +8,15 @@ let decorationType: vscode.TextEditorDecorationType | undefined;
 
 async function loadTranslations() {
     const config = vscode.workspace.getConfiguration();
+    const translationLanguage = config.get<string>('translationLanguage', 'en');
     const translationFilesPath = config.get<string>('translationFilesPath', 'locales/**/*.{json,js,ts}');
 
     translations = {};
     const files = await vscode.workspace.findFiles(translationFilesPath);
-
-    for (const file of files) {
+    const filteredFiles = files.filter(file => {
+        return file.fsPath.toLowerCase().includes(translationLanguage)
+    });
+    for (const file of filteredFiles) {
         const fileExtension = path.extname(file.fsPath);
         
         if (fileExtension === '.json') {
@@ -87,6 +90,16 @@ function getNestedTranslation(keyPath: string, obj: any): string | undefined {
     return keyPath.split('.').reduce((acc, key) => acc && acc[key], obj);
 }
 
+function getTranslationFunctionRegex(): RegExp {
+    const config = vscode.workspace.getConfiguration();
+    const functionNames = config.get<string>('translationFunctionNames', 't') ? config.get<string>('translationFunctionNames', 't').split(',') : ['t'];
+    console.log("Loaded function names from settings:",config.get<string>('translationFunctionNames', 't').split(',')); // Logging
+    const escapedNames = functionNames.map(fn => `(?<![^\\s])${fn.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s*\\()`);
+    const regexString = `(${escapedNames.join('|')})\\s*\\(\\s*['"]([^'"]+)['"]\\s*\\)`;
+    console.log("Constructed regex:", regexString); // Logging
+    return new RegExp(regexString, 'g');
+}
+
 function applyDecorations() {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
@@ -99,17 +112,16 @@ function applyDecorations() {
     }
 
     decorationType = vscode.window.createTextEditorDecorationType({});
-
     const decorations: vscode.DecorationOptions[] = [];
     const text = editor.document.getText();
-    const regex = /t\(['"]([^'"]+)['"]\)/g;
+    const regex = getTranslationFunctionRegex();
     let match;
 
     while ((match = regex.exec(text)) !== null) {
-        const key = match[1];
+        const key = match[2];
         const translation = getNestedTranslation(key, translations); 
         if (translation) {
-            const startPos = editor.document.positionAt(match.index + 2);
+            const startPos = editor.document.positionAt(match.index + match[1].length + 2);
             const endPos = editor.document.positionAt(match.index + match[0].length - 1);
             const range = new vscode.Range(startPos, endPos);
 
@@ -124,7 +136,7 @@ function applyDecorations() {
                         fontStyle: 'italic'
                     }
                 },
-                hoverMessage: `Original text: t("${key}")`
+                hoverMessage: `预览:  ${match[1]?match[1]:'t'}("${key}"->${translation})`
             };
             decorations.push(decoration);
         }
@@ -152,9 +164,9 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }, null, context.subscriptions);
 
-    // Listen for changes in the settings (translationFilesPath)
+    // Listen for changes in the settings (translationFilesPath,translationLanguage and translationFunctionNames)
     vscode.workspace.onDidChangeConfiguration(async (e) => {
-        if (e.affectsConfiguration('translationFilesPath')) {
+        if (e.affectsConfiguration('translationFilesPath') || e.affectsConfiguration('translationLanguage') || e.affectsConfiguration('translationFunctionNames')) {
             await loadTranslations();
             applyDecorations();
         }
