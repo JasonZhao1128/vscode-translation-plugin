@@ -2,7 +2,7 @@
     "name": "mul-assistance",
     "displayName": "mul-assistance",
     "description": "翻译i18n文本辅助",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "publisher": "jasonzhao1128",
     "repository":"https://github.com/JasonZhao1128/vscode-translation-plugin.git",
     "icon": "./icon.jpeg",
