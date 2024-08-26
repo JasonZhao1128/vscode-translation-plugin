@@ -32,16 +32,15 @@ async function loadTranslations() {
 
             const sandbox = { module: { exports: {} }, exports: {}, require, console };
             vm.createContext(sandbox);
-
+            
             if (isESModule(compiledContent)) {
                 try {
                     const scriptWithExportHandling = handleESModuleExports(compiledContent);
                     const script = new vm.Script(scriptWithExportHandling);
                     script.runInContext(sandbox);
                     const moduleExports = sandbox.module.exports;
-                    const exports = sandbox.exports;
+                    const exports = Object.values(sandbox.exports).reduce((acc:any, curr:any) => ({ ...acc, ...curr }), {}) as object;
                     translations = { ...translations, ...moduleExports,...exports };
-                    console.log('Loaded ES Module:', moduleExports);
                 } catch (error) {
                     console.error(`Failed to load ES Module from file ${file.fsPath}:`, error);
                 }
@@ -51,8 +50,9 @@ async function loadTranslations() {
                     script.runInContext(sandbox);
 
                     const moduleExports = sandbox.module.exports;
-                    translations = { ...translations, ...moduleExports };
-                    console.log('Loaded CommonJS Module:', moduleExports);
+                    const exports = Object.values(sandbox.exports).reduce((acc:any, curr:any) => ({ ...acc, ...curr }), {}) as object;
+                    translations = { ...translations, ...moduleExports,...exports };
+                    console.log('Loaded CommonJS Module:', exports);
                 } catch (error) {
                     console.error(`Failed to execute CommonJS script in file ${file.fsPath}:`, error);
                 }
@@ -151,6 +151,14 @@ export async function activate(context: vscode.ExtensionContext) {
             applyDecorations();
         }
     }, null, context.subscriptions);
+
+    // Listen for changes in the settings (translationFilesPath)
+    vscode.workspace.onDidChangeConfiguration(async (e) => {
+        if (e.affectsConfiguration('translationFilesPath')) {
+            await loadTranslations();
+            applyDecorations();
+        }
+    });
 
     applyDecorations();
 }
