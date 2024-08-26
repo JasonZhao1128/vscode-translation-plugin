@@ -36,7 +36,9 @@ A VS Code extension for translating i18n text.
 ## Configuration
 
 - Set the path to your translation files in the VS Code settings:
-  "translationFilesPath": "locales/*.json"
+  "translationFilesPath": "locales/**/*.{json,js,ts}"
+  "translationLanguage": "zh",
+  "translationFunctionNames": "t,$t",
 
 ## Build
 ```
