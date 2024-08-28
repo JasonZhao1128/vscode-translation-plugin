@@ -14,7 +14,7 @@ async function loadTranslations() {
     translations = {};
     const files = await vscode.workspace.findFiles(translationFilesPath);
     const filteredFiles = files.filter(file => {
-        return file.fsPath.toLowerCase().includes(translationLanguage)
+        return file.fsPath.toLowerCase().includes(translationLanguage);
     });
     for (const file of filteredFiles) {
         const fileExtension = path.extname(file.fsPath);
@@ -26,61 +26,71 @@ async function loadTranslations() {
         } else if (fileExtension === '.js' || fileExtension === '.ts') {
             const fileContent = await vscode.workspace.fs.readFile(file);
             const scriptContent = fileContent.toString();
+             // 自定义 require 函数
+            const customRequire =async (modulePath: string) => {
+                const basePath = path.resolve(path.dirname(file.fsPath), modulePath).replace(/\\/g, '/').split('/');
 
-            // If TypeScript, compile it first
-            let compiledContent = scriptContent;
-            if (fileExtension === '.ts') {
-                compiledContent = compileTypeScript(scriptContent, file.fsPath);
-            }
-
-            const sandbox = { module: { exports: {} }, exports: {}, require, console };
-            vm.createContext(sandbox);
+                // 模糊搜索可能的文件路径，支持常见扩展名
+                const searchPattern =  `${basePath[basePath.length-2]}/${basePath[basePath.length-1]}.{js,ts}`;
             
-            if (isESModule(compiledContent)) {
-                try {
-                    const scriptWithExportHandling = handleESModuleExports(compiledContent);
-                    const script = new vm.Script(scriptWithExportHandling);
-                    script.runInContext(sandbox);
-                    const moduleExports = sandbox.module.exports;
-                    const exports = Object.values(sandbox.exports).reduce((acc:any, curr:any) => ({ ...acc, ...curr }), {}) as object;
-                    translations = { ...translations, ...moduleExports,...exports };
-                } catch (error) {
-                    console.error(`Failed to load ES Module from file ${file.fsPath}:`, error);
+                // 使用 vscode.workspace.findFiles 查找匹配文件
+                const files = await vscode.workspace.findFiles(searchPattern);
+                
+                if (files.length > 0) {
+                    const fileUri = files[0]; // 使用找到的第一个文件
+                    return loadModule(fileUri); // 加载模块
+                } else {
+                    throw new Error(`Module not found: ${modulePath}`);
                 }
-            } else {
-                try {
-                    const script = new vm.Script(compiledContent);
-                    script.runInContext(sandbox);
-
-                    const moduleExports = sandbox.module.exports;
-                    const exports = Object.values(sandbox.exports).reduce((acc:any, curr:any) => ({ ...acc, ...curr }), {}) as object;
-                    translations = { ...translations, ...moduleExports,...exports };
-                    console.log('Loaded CommonJS Module:', exports);
-                } catch (error) {
-                    console.error(`Failed to execute CommonJS script in file ${file.fsPath}:`, error);
-                }
+            };
+            const compiledContent = compileTypeScript(scriptContent, file.fsPath,  ts.ModuleKind.CommonJS);
+            const sandbox = { module: { exports: {} }, exports: {}, require:customRequire, console };
+            vm.createContext(sandbox);
+            try {
+                const script = new vm.Script(compiledContent);
+                script.runInContext(sandbox);
+                Object.values(sandbox).forEach(async (i:any)=>{
+                    if (i instanceof Promise) {
+                        const res = await i;
+                        const moduleExports = res.module.exports;
+                        const exports = Object.values(res.exports).reduce((acc: any, curr: any) => ({ ...acc, ...curr }), {}) as object;
+                        translations = { ...translations, ...moduleExports, ...exports };
+                        // 防止promise完成，部分key没有翻译
+                        applyDecorations();
+                    }
+                });
+                const moduleExports = sandbox.module.exports;
+                const exports = Object.values(sandbox.exports).reduce((acc: any, curr: any) => ({ ...acc, ...curr }), {}) as object;
+                translations = { ...translations, ...moduleExports, ...exports };
+            } catch (error) {
+                console.error(`Failed to execute CommonJS script in file ${file.fsPath}:`, error);
             }
         }
     }
-
-    console.log('Loaded translations:', translations);
 }
 
-function isESModule(scriptContent: string): boolean {
-    const hasExport = /\bexport\b/.test(scriptContent);
-    const hasImport = /\bimport\b/.test(scriptContent);
-    return hasExport || hasImport;
-}
-
-function handleESModuleExports(scriptContent: string): string {
-    return scriptContent.replace(/export\s+default\s+/g, 'module.exports = ')
-                        .replace(/export\s+const\s+(\w+)\s*=\s*/g, 'exports.$1 = ');
+// 自定义模块加载函数
+async function loadModule(fileUri: vscode.Uri): Promise<any> {
+    const fileContent = await vscode.workspace.fs.readFile(fileUri);
+    const scriptContent = fileContent.toString();
+    const sandbox = { module: { exports: {} }, exports: {}, require: undefined, console };
+    vm.createContext(sandbox);
+    
+    try {
+        const compiledContent = compileTypeScript(scriptContent, '',  ts.ModuleKind.CommonJS);
+        const script = new vm.Script(compiledContent);
+        script.runInContext(sandbox);
+        return sandbox
+    } catch (error) {
+        console.error(`Failed to load module from file ${fileUri.fsPath}:`, error);
+        return {};
+    }
 }
 
 // TypeScript compiler
-function compileTypeScript(source: string, fileName: string): string {
+function compileTypeScript(source: string, fileName: string, targetModuleKind: ts.ModuleKind): string {
     const result = ts.transpileModule(source, {
-        compilerOptions: { module: ts.ModuleKind.CommonJS },
+        compilerOptions: { module: targetModuleKind }, // 动态选择模块类型
         fileName,
     });
     return result.outputText;
@@ -93,10 +103,8 @@ function getNestedTranslation(keyPath: string, obj: any): string | undefined {
 function getTranslationFunctionRegex(): RegExp {
     const config = vscode.workspace.getConfiguration();
     const functionNames = config.get<string>('translationFunctionNames', 't') ? config.get<string>('translationFunctionNames', 't').split(',') : ['t'];
-    console.log("Loaded function names from settings:",config.get<string>('translationFunctionNames', 't').split(',')); // Logging
-    const escapedNames = functionNames.map(fn => `(?<![^\\s])${fn.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s*\\()`);
-    const regexString = `(${escapedNames.join('|')})\\s*\\(\\s*['"]([^'"]+)['"]\\s*\\)`;
-    console.log("Constructed regex:", regexString); // Logging
+    const escapedNames = functionNames.map(fn => `\\b${fn.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+    const regexString = `(${escapedNames.join('|')})\\(['"]([^'"]+)['"]\\)`;
     return new RegExp(regexString, 'g');
 }
 
@@ -147,7 +155,6 @@ function applyDecorations() {
 
 export async function activate(context: vscode.ExtensionContext) {
     await loadTranslations();
-
     vscode.window.onDidChangeActiveTextEditor(applyDecorations, null, context.subscriptions);
     vscode.workspace.onDidChangeTextDocument(() => {
         applyDecorations();
